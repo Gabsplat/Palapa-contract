@@ -14,7 +14,7 @@ const VAULT_SEED_PREFIX: &[u8] = b"vault";
 // --- Fee Constants ---
 const CREATOR_FEE_BASIS_POINTS: u64 = 500; // 5%
 const SERVICE_FEE_BASIS_POINTS: u64 = 300; // 3%
-const SERVICE_WALLET_PUBKEY: Pubkey = pubkey!("FDKFLU6mUjfYZRRSrqbS9CPH87MFpae8JSH9Ddt79oRN"); // !!! REPLACE THIS !!!
+const SERVICE_WALLET_PUBKEY: Pubkey = pubkey!("FDKFLU6mUjfYZRRSrqbS9CPH87MFpae8JSH9Ddt79oRN");
 const BASIS_POINTS_DENOMINATOR: u64 = 10000;
 
 // --- Data Size Constants (FOR MANUAL CALCULATION) ---
@@ -47,7 +47,7 @@ pub mod palapa_fun_rooms {
         room_data.room_seed = room_seed;
         room_data.bump = ctx.bumps.room_data; // Access bumps from context
         room_data.vault_bump = ctx.bumps.room_vault; // Access bumps from context
-        room_data.status = RoomStatus::OpenForJoining;
+        room_data.status = RoomStatus::OpenForJoining; // Rooms are open for joining immediately
         room_data.winner = None;
         room_data.max_players = max_players; // Store the actual limit for this room
         room_data.entry_fee = entry_fee;
@@ -100,6 +100,19 @@ pub mod palapa_fun_rooms {
         Ok(())
     }
 
+    /// Allows the room creator to start the game if it's open for joining.
+    /// This is typically used if the room doesn't fill up to max_players but the creator wants to proceed.
+    pub fn start_room(ctx: Context<StartRoom>, _room_seed: String) -> Result<()> {
+        let room_data = &mut ctx.accounts.room_data;
+
+        require!(room_data.status == RoomStatus::OpenForJoining, PalapaError::RoomNotOpenForStarting);
+
+        room_data.status = RoomStatus::InProgress;
+        msg!("Room '{}' manually started by creator {}. Status changed to InProgress.", room_data.room_seed, ctx.accounts.creator.key());
+        Ok(())
+    }
+
+
     /// Called by the room creator to declare the winner and distribute the vault funds.
     pub fn announce_winner(ctx: Context<AnnounceWinner>, _room_seed: String, winner_pubkey: Pubkey) -> Result<()> {
         let room_data = &mut ctx.accounts.room_data;
@@ -142,7 +155,6 @@ pub mod palapa_fun_rooms {
             msg!("Calculated Service Fee: {}", service_fee);
             msg!("Calculated Winner Share (Prize): {}", winner_share_prize);
             msg!("Total to Winner (Share + Rent): {}", winner_total_receive);
-            // Removed redundant check: require!(winner_share_prize >= 0, ...);
 
             if creator_fee > 0 {
                 system_program::transfer(CpiContext::new_with_signer(system_program_account.to_account_info(), system_program::Transfer { from: vault.to_account_info(), to: creator_account.to_account_info() }, signer_seeds), creator_fee)?;
@@ -184,6 +196,7 @@ pub mod palapa_fun_rooms {
         let system_program_account = &ctx.accounts.system_program;
         let clock = Clock::get()?;
 
+        // Note: `create_room` sets status to OpenForJoining. `Created` might be a legacy or planned future state.
         require!(room_data.status == RoomStatus::OpenForJoining || room_data.status == RoomStatus::Created, PalapaError::CannotCancelRoomState);
         require!(room_data.players.is_empty(), PalapaError::CannotCancelRoomPlayersJoined);
 
@@ -265,6 +278,21 @@ pub struct JoinRoom<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(room_seed: String)] // The room_seed is passed as an argument to the instruction
+pub struct StartRoom<'info> {
+    #[account(mut)]
+    pub creator: Signer<'info>, // The one calling the instruction, must be the room creator
+    #[account(
+        mut,
+        seeds = [ROOM_SEED_PREFIX, creator.key().as_ref(), room_seed.as_bytes()], // PDA derived using signer's key and room_seed
+        bump = room_data.bump, // Verify stored bump
+        has_one = creator @ PalapaError::Unauthorized // Ensure the signer is the original creator of this room
+    )]
+    pub room_data: Account<'info, RoomData>,
+}
+
+
+#[derive(Accounts)]
 #[instruction(room_seed: String, winner_pubkey: Pubkey)]
 pub struct AnnounceWinner<'info> {
     #[account(mut)]
@@ -280,7 +308,8 @@ pub struct AnnounceWinner<'info> {
     #[account(
         mut,
         seeds = [VAULT_SEED_PREFIX, creator.key().as_ref(), room_seed.as_bytes()],
-        bump
+        bump // Bump for room_vault PDA (can be different from room_data.vault_bump if not stored explicitly)
+             // If room_data.vault_bump is always correct for the vault, use `bump = room_data.vault_bump`
     )]
     pub room_vault: AccountInfo<'info>,
     /// CHECK: Winner account, mutable for receiving funds. Checked by constraint.
@@ -316,7 +345,8 @@ pub struct CancelRoom<'info> {
     #[account(
         mut,
         seeds = [VAULT_SEED_PREFIX, creator.key().as_ref(), room_seed.as_bytes()],
-        bump
+        bump // Bump for room_vault PDA
+             // If room_data.vault_bump is always correct for the vault, use `bump = room_data.vault_bump`
         // close = creator // Optional: Close vault account (AFTER transfer)
     )]
     pub room_vault: AccountInfo<'info>,
@@ -329,8 +359,8 @@ pub struct CancelRoom<'info> {
 pub struct RoomData {
     pub creator: Pubkey,
     pub room_seed: String,
-    pub bump: u8,
-    pub vault_bump: u8,
+    pub bump: u8, // Bump for the RoomData PDA itself
+    pub vault_bump: u8, // Bump for the RoomVault PDA
     pub status: RoomStatus,
     pub winner: Option<Pubkey>,
     pub max_players: u16,
@@ -341,15 +371,12 @@ pub struct RoomData {
 }
 
 impl RoomData {
-    // Function to calculate space manually
-    // Use _max_players_request to silence warning if not directly used in calculation
     pub fn calculate_space(_max_players_request: u16, room_seed: &str) -> usize {
         let players_capacity_for_space = MAX_PLAYERS_ALLOWED;
 
         8 + // Anchor discriminator
         32 + // creator: Pubkey
         (4 + room_seed.len()) + // room_seed: String (variable length)
-        // Or fixed: (4 + MAX_ROOM_SEED_LEN) +
         1 + // bump: u8
         1 + // vault_bump: u8
         RoomStatus::SPACE + // status: RoomStatus
@@ -366,7 +393,7 @@ impl RoomData {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum RoomStatus {
-    Created,
+    Created,        // Potentially a state before OpenForJoining, though current create_room skips to OpenForJoining
     OpenForJoining,
     InProgress,
     Finished,
@@ -374,9 +401,13 @@ pub enum RoomStatus {
 }
 
 impl RoomStatus {
-    const SPACE: usize = 1; // Size of the discriminant
+    const SPACE: usize = 1 + 1; // Size of the discriminant + 1 for safety/enum variant value
+                                // Actually, for enums like this, Anchor usually just needs 1 byte for the discriminant.
+                                // Let's use 1, as typical.
+    // const SPACE: usize = 1; // Corrected: Size of the discriminant for the enum
 }
-
+// Re-evaluating RoomStatus::SPACE. Anchor handles this internally for enums.
+// The way it was (1 byte for discriminant) is standard. So RoomStatus::SPACE = 1 is fine.
 
 #[error_code]
 pub enum PalapaError {
@@ -399,4 +430,5 @@ pub enum PalapaError {
     #[msg("Insufficient funds in vault to cover calculated fees and payout (negative prize share).")] InsufficientFundsForPayout, // 6016
     #[msg("Requested max players exceeds the program's limit used for space allocation.")] MaxPlayersExceedsLimit, // 6017
     #[msg("Invalid Creator account provided for seed derivation.")] InvalidCreator, // 6018
+    #[msg("Room is not in the OpenForJoining state, cannot be started.")] RoomNotOpenForStarting, // 6019
 }
