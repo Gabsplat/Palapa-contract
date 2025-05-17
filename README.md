@@ -1,7 +1,3 @@
-Okay, this is a great project structure to document!
-Here's a comprehensive README.md file for your PALAPA project, designed to be informative for both developers and other interested parties.
-
-```markdown
 # PALAPA Fun Rooms 🎉
 
 **PALAPA Fun Rooms** is a Solana smart contract (program) built with Anchor (v0.31.1) that enables the creation and management of on-chain "fun rooms." These rooms can be used for various purposes, such as simple games, event lobbies, or any scenario where participants might join, optionally pay an entry fee, and a winner is later announced to distribute collected funds.
