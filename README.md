@@ -7,7 +7,6 @@ The program handles room creation, player joining, fee collection into a secure 
 [![Anchor Version](https://img.shields.io/badge/Anchor-v0.31.1-orange.svg)](https://www.anchor-lang.com/)
 [![Rust Version](https://img.shields.io/badge/Rust-Stable-blue.svg)](https://www.rust-lang.org/)
 [![Solana Version](https://img.shields.io/badge/Solana-^1.17-green.svg)](https://solana.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) <!-- You'd add a LICENSE file for this -->
 
 ## ✨ Features
 
