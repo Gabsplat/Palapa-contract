@@ -8,6 +8,13 @@ The program handles room creation, player joining, fee collection into a secure 
 [![Rust Version](https://img.shields.io/badge/Rust-Stable-blue.svg)](https://www.rust-lang.org/)
 [![Solana Version](https://img.shields.io/badge/Solana-^1.17-green.svg)](https://solana.com/)
 
+---
+
+**🚀 Live Demo:** [**palapa-front.vercel.app**](https://palapa-front.vercel.app/)
+**📺 Technical demo:** [**youtube.com/V7Nw-Z2dEVY**](https://youtu.be/V7Nw-Z2dEVY)
+
+---
+
 ## ✨ Features
 
 *   **Room Creation:** Creators can initialize new rooms with custom parameters:
